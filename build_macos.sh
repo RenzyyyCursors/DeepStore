@@ -1,13 +1,13 @@
 #!/bin/bash
-# Build SecureVault.app on macOS using PyInstaller.
-# Run this ON A MAC (not this Linux sandbox), from inside the SecureVault folder:
+# Build DeepStore.app on macOS using PyInstaller.
+# Run from inside the DeepStore folder:
 #
 #   chmod +x build_macos.sh
 #   ./build_macos.sh
 #
 set -e
 
-APP_NAME="SecureVault"
+APP_NAME="DeepStore"
 
 echo "==> Installing dependencies..."
 pip3 install -r requirements.txt
