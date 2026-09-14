@@ -2,30 +2,47 @@
 storage.py
 ----------
 Handles local vault storage, atomic persistence, strict permissions,
-and passkey/metadata lifecycle.
+and passkey/metadata lifecycle on Windows.
 
-Files in ~/Library/Application Support/SecureVault/ (or fallback ~/.securevault/):
-    salt.bin    -> cryptographic salt (protected 0600)
-    vault.dat   -> encrypted vault blob (protected 0600)
-    meta.json   -> settings such as Touch ID & auto-lock timeout (0600)
+Standard Windows location:
+    %APPDATA%\\DeepStore\\
+        salt.bin    -> cryptographic salt
+        vault.dat   -> encrypted vault blob
+        meta.json   -> settings such as Windows Auth & auto-lock timeout
 """
 
 import os
+import sys
 import json
 import uuid
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 from . import crypto_utils
 
-# Use macOS standard Application Support path, with fallback
-APP_DIR = Path.home() / "Library" / "Application Support" / "DeepStore"
-if not (Path.home() / "Library").exists():
+# Standard Windows AppData directory with cross-platform fallback
+if sys.platform == "win32" or os.name == "nt":
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        APP_DIR = Path(appdata) / "DeepStore"
+    else:
+        APP_DIR = Path.home() / "AppData" / "Roaming" / "DeepStore"
+    LEGACY_APP_DIRS = [
+        Path.home() / "AppData" / "Roaming" / "SecureVault",
+        Path.home() / ".deepstore",
+        Path.home() / ".securevault",
+    ]
+elif sys.platform == "darwin":
+    APP_DIR = Path.home() / "Library" / "Application Support" / "DeepStore"
+    LEGACY_APP_DIRS = [
+        Path.home() / "Library" / "Application Support" / "SecureVault",
+        Path.home() / ".deepstore",
+    ]
+else:
     APP_DIR = Path.home() / ".deepstore"
-
-# Legacy path migration check
-LEGACY_APP_DIR = Path.home() / "Library" / "Application Support" / "SecureVault"
+    LEGACY_APP_DIRS = [Path.home() / ".securevault"]
 
 SALT_FILE = APP_DIR / "salt.bin"
 VAULT_FILE = APP_DIR / "vault.dat"
@@ -33,7 +50,7 @@ META_FILE = APP_DIR / "meta.json"
 
 DEFAULT_CATEGORIES = ["Personal", "Work", "Finance", "Social", "Uncategorized"]
 DEFAULT_META = {
-    "touch_id_enabled": False,
+    "windows_auth_enabled": False,
     "auto_lock_minutes": 5,        # 0 = never, 1, 5, 15, 30
     "clipboard_clear_seconds": 30, # 15, 30, 60
     "theme": "System",
@@ -41,22 +58,21 @@ DEFAULT_META = {
 
 
 def ensure_app_dir():
-    """Ensure app directory exists with strict 0700 permissions."""
+    """Ensure app directory exists with appropriate permissions and handles legacy migration."""
     if not APP_DIR.exists():
-        # Check if legacy directory exists to migrate seamlessly
-        if LEGACY_APP_DIR.exists() and (LEGACY_APP_DIR / "vault.dat").exists():
-            import shutil
-            APP_DIR.mkdir(parents=True, exist_ok=True)
-            try:
-                os.chmod(APP_DIR, 0o700)
-            except Exception:
-                pass
-            for item in LEGACY_APP_DIR.iterdir():
-                try:
-                    shutil.copy2(item, APP_DIR / item.name)
-                except Exception:
-                    pass
-        else:
+        migrated = False
+        for legacy_dir in LEGACY_APP_DIRS:
+            if legacy_dir.exists() and (legacy_dir / "vault.dat").exists():
+                APP_DIR.mkdir(parents=True, exist_ok=True)
+                for item in legacy_dir.iterdir():
+                    try:
+                        shutil.copy2(item, APP_DIR / item.name)
+                    except Exception:
+                        pass
+                migrated = True
+                break
+
+        if not migrated:
             APP_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -66,7 +82,10 @@ def ensure_app_dir():
 
 
 def _atomic_write_bytes(path: Path, data: bytes):
-    """Atomically write bytes to disk with 0600 permissions to prevent file corruption."""
+    """
+    Atomically write bytes to disk.
+    Explicitly closes temporary file handles to support Windows NTFS locking semantics.
+    """
     ensure_app_dir()
     temp_file = None
     try:
@@ -82,6 +101,7 @@ def _atomic_write_bytes(path: Path, data: bytes):
         except Exception:
             pass
 
+        # Perform atomic replace (file handle is closed outside the 'with' block)
         os.replace(temp_file, path)
         try:
             os.chmod(path, 0o600)
@@ -121,6 +141,9 @@ def load_meta() -> dict:
             loaded = json.loads(META_FILE.read_text(encoding="utf-8"))
             meta = DEFAULT_META.copy()
             meta.update(loaded)
+            # Seamless migration from touch_id_enabled to windows_auth_enabled
+            if "touch_id_enabled" in meta and "windows_auth_enabled" not in loaded:
+                meta["windows_auth_enabled"] = meta["touch_id_enabled"]
             return meta
         except Exception:
             return DEFAULT_META.copy()
@@ -177,8 +200,10 @@ def save_data(data: dict, key: bytes):
 
 
 def change_master_password(old_key: bytes, new_password: str) -> bytes:
-    """Re-encrypt the vault with a newly derived key and fresh random salt.
-    Returns the new key."""
+    """
+    Re-encrypt the vault with a newly derived key and fresh random salt.
+    Returns the new key.
+    """
     data = load_data(old_key)
     new_salt = crypto_utils.generate_salt()
     new_key = crypto_utils.derive_key(new_password, new_salt)

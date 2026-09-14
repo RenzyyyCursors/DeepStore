@@ -1,6 +1,6 @@
 # DeepStore
 
-A minimalist, locally-encrypted password manager for macOS, styled with Apple Yellow & Graphite aesthetics and built with `customtkinter`.
+A minimalist, locally-encrypted password manager for Windows, styled with Golden Yellow & Slate aesthetics and built with `customtkinter`.
 
 ## Highlights & Features
 
@@ -8,14 +8,16 @@ A minimalist, locally-encrypted password manager for macOS, styled with Apple Ye
   - Derived using **scrypt** (`n=65536`, `r=8`, `p=1`) with a 256-bit cryptographically random salt.
   - Authenticated symmetric encryption via **Fernet** (AES-128-CBC + HMAC-SHA256).
   - Backward-compatible derivation for existing vaults.
-- **In-App Passkey & Touch ID Management**:
-  - Real-time Touch ID status detection.
-  - In-app **Settings (⚙️)** modal to toggle Touch ID, re-sync passkeys to Keychain, or clear cached passkeys instantly.
+- **Windows Password & Credential Manager Integration**:
+  - Quick unlock using your active **Windows account password** (`advapi32.LogonUserW`).
+  - Seamless passkey caching into **Windows Credential Manager** (`keyring.backends.Windows`).
+  - In-app **Preferences (⚙️)** modal to toggle Windows Quick Unlock, re-sync passkeys to Windows Credential Manager, or clear cached credentials.
   - Ability to safely **Change Master Passkey** and re-encrypt the entire vault atomically.
-- **macOS Design Language & Animations**:
-  - Apple Yellow (`#F5C518`) accent paired with Graphite dark/light surfaces.
+- **Modern Windows Design & Typography**:
+  - Golden Yellow (`#F5C518`) accent paired with Slate dark/light surfaces.
+  - `Segoe UI` typography with `Consolas` monospace font.
   - Responsive hover elevation and interactive feedback.
-  - Animated macOS Toast notifications for actions like "Copied to clipboard".
+  - Animated Toast notifications for actions like "Copied to clipboard".
   - **Cell Card Layout**:
     - **Top**: Service Name + Category tag + **Show/Hide password toggle** + `⋯` action menu.
     - **Middle**: Username/Email display + Monospace password display.
@@ -24,28 +26,29 @@ A minimalist, locally-encrypted password manager for macOS, styled with Apple Ye
   - **Atomic File Writes**: Prevents database corruption using temporary file atomic swaps (`os.replace`).
   - **Auto-Clearing Clipboard**: Automatically wipes copied secrets after 30 seconds (configurable).
   - **Inactivity Auto-Lock**: Automatically locks the vault after 1, 5, 15, or 30 minutes of idle time.
-  - **Strict POSIX Permissions**: Restricts database files and directory to `0600` / `0700`.
+  - **Standard Windows Storage**: Encrypted data stored under `%APPDATA%\DeepStore`.
 
 ## Running Directly
 
-```bash
+On Windows (Command Prompt or PowerShell):
+
+```bat
 cd DeepStore
-python3 -m venv venv
-source venv/bin/activate
-pip3 install -r requirements.txt
-python3 main.py
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python main.py
 ```
 
-## Building Standalone macOS App (`.app` / installer)
+## Building Standalone Windows Executable (`.exe`)
 
-Run from inside the DeepStore repository on macOS:
+Run from inside the DeepStore repository on Windows:
 
-```bash
-chmod +x build_macos.sh
-./build_macos.sh
+```bat
+build_windows.bat
 ```
 
-This will produce `dist/DeepStore.app` which can be dragged directly into `/Applications` or packaged into `.dmg` / `.pkg`.
+This will run PyInstaller and generate `dist\DeepStore\DeepStore.exe`.
 
 ## File Structure
 
@@ -53,10 +56,11 @@ This will produce `dist/DeepStore.app` which can be dragged directly into `/Appl
 DeepStore/
 ├── main.py                 Application entry point
 ├── requirements.txt        Python dependencies
-├── build_macos.sh          macOS PyInstaller build & code-signing script
+├── build_windows.bat       Windows PyInstaller build script
 └── securevault/
     ├── crypto_utils.py     scrypt KDF, Fernet encryption, password strength
-    ├── storage.py          Atomic file persistence, 0600 permissions, key rotation
-    ├── biometrics.py       Touch ID / LocalAuthentication + Keychain sync
-    └── ui.py               macOS Yellow theme, cards, animations, toast & settings
+    ├── storage.py          %APPDATA% storage, atomic file persistence, key rotation
+    ├── win_auth.py         Windows account password verification & Windows Credential Manager
+    ├── biometrics.py       Backward compatibility bridge to win_auth
+    └── ui.py               Windows Segoe UI theme, cards, animations, toast & settings
 ```

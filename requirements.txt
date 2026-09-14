@@ -1,5 +1,4 @@
 customtkinter>=5.2.2
 cryptography>=42.0.0
 keyring>=25.0.0
-pyobjc-framework-LocalAuthentication>=10.0 ; sys_platform == "darwin"
 pyinstaller>=6.6.0

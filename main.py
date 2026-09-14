@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SecureVault - a local, encrypted password manager for macOS.
-Run with:  python3 main.py
+DeepStore - a local, encrypted password manager for Windows.
+Run with:  python main.py
 """
 from securevault.ui import SecureVaultApp
 

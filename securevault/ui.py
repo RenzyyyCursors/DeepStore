@@ -1,11 +1,12 @@
 """
 ui.py
 -----
-DeepStore macOS Password Manager Interface
-- macOS Yellow + Graphite aesthetics
+DeepStore Windows Password Manager Interface
+- Golden Yellow + Slate Graphite aesthetics
+- Windows Password & Windows Credential Manager integration
 - Responsive animations & Toast notification feedback
 - Reorganized card layout: Show/Hide toggle at top, twin Copy buttons at bottom
-- Complete in-app Passkey & Biometric settings, Master Key rotation, Auto-lock & Clipboard security
+- Complete in-app Windows Security & Quick Unlock settings, Master Key rotation, Auto-lock & Clipboard security
 """
 
 import time
@@ -17,20 +18,20 @@ from tkinter import messagebox
 
 from . import storage
 from . import crypto_utils
-from . import biometrics
+from . import win_auth
 
 # ---------------- Design System: Colors & Typography ----------------
-FONT_FAMILY = "SF Pro Display"
-MONO_FONT = "SF Mono"
+FONT_FAMILY = "Segoe UI"
+MONO_FONT = "Consolas"
 
-# macOS Yellow Accent Palette
-ACCENT_COLOR = "#F5C518"       # Vibrant macOS Golden Yellow
+# Golden Yellow Accent Palette
+ACCENT_COLOR = "#F5C518"       # Vibrant Golden Yellow
 ACCENT_HOVER = "#E5B510"       # Darker gold on hover
 ACCENT_ACTIVE = "#CCA00E"      # Deep gold
 ACCENT_TEXT = "#1C1C1E"        # Crisp dark text on yellow
 ACCENT_SUBTLE = ("#FEF3C7", "#3D3519")  # Soft pastel yellow / dark graphite gold tint
 
-# macOS Graphite & Dark/Light Surfaces
+# Slate Graphite & Dark/Light Surfaces
 BG_COLOR = ("#F2F2F7", "#141416")
 CARD_BG = ("#FFFFFF", "#202024")
 CARD_HOVER_BG = ("#F8F8FA", "#28282E")
@@ -66,7 +67,7 @@ def gen_password(length: int = 20, use_special: bool = True) -> str:
 
 
 class ToastNotification(ctk.CTkFrame):
-    """Floating animated macOS-style toast banner."""
+    """Floating animated toast banner."""
     def __init__(self, master, message: str, duration_ms: int = 3000, icon: str = "✓"):
         super().__init__(
             master,
@@ -103,10 +104,126 @@ class ToastNotification(ctk.CTkFrame):
             pass
 
 
+class WindowsPasswordDialog(ctk.CTkToplevel):
+    """Windows Password verification dialog for quick vault unlock."""
+    def __init__(self, parent, on_success: callable):
+        super().__init__(parent)
+        self.title("Windows Security")
+        self.geometry("420x280")
+        self.resizable(False, False)
+        self.configure(fg_color=BG_COLOR)
+        self.transient(parent)
+        self.grab_set()
+
+        self.on_success = on_success
+        username = win_auth.get_current_username()
+
+        # Center dialog relative to parent
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_w = parent.winfo_width()
+        parent_h = parent.winfo_height()
+        x = parent_x + (parent_w - 420) // 2
+        y = parent_y + (parent_h - 280) // 2
+        self.geometry(f"+{max(10, x)}+{max(10, y)}")
+
+        card = ctk.CTkFrame(self, corner_radius=16, fg_color=CARD_BG, border_width=1, border_color=BORDER_COLOR)
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+
+        # Header with Windows Shield Icon
+        header = ctk.CTkFrame(card, fg_color="transparent")
+        header.pack(fill="x", padx=20, pady=(16, 6))
+
+        ctk.CTkLabel(
+            header,
+            text="🛡️  Windows Security",
+            font=(FONT_FAMILY, 16, "bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            card,
+            text=f"Enter Windows password for {username} to unlock DeepStore.",
+            font=(FONT_FAMILY, 11),
+            text_color=TEXT_SECONDARY,
+            wraplength=340,
+            justify="left"
+        ).pack(anchor="w", padx=20, pady=(0, 12))
+
+        self.pw_entry = ctk.CTkEntry(
+            card,
+            placeholder_text="Windows Password",
+            show="•",
+            height=38,
+            corner_radius=8,
+            border_color=BORDER_COLOR,
+            fg_color=BG_COLOR
+        )
+        self.pw_entry.pack(fill="x", padx=20, pady=(0, 4))
+        self.pw_entry.bind("<Return>", lambda e: self._verify())
+        self.pw_entry.focus()
+
+        self.error_label = ctk.CTkLabel(
+            card,
+            text="",
+            font=(FONT_FAMILY, 11),
+            text_color=DANGER_COLOR
+        )
+        self.error_label.pack(anchor="w", padx=20, pady=(0, 8))
+
+        btn_bar = ctk.CTkFrame(card, fg_color="transparent")
+        btn_bar.pack(fill="x", padx=20, pady=(0, 14))
+
+        ctk.CTkButton(
+            btn_bar,
+            text="Cancel",
+            width=90,
+            height=34,
+            corner_radius=8,
+            fg_color="transparent",
+            border_width=1,
+            border_color=BORDER_COLOR,
+            text_color=TEXT_PRIMARY,
+            hover_color=CARD_HOVER_BG,
+            command=self.destroy
+        ).pack(side="right", padx=(8, 0))
+
+        self.ok_btn = ctk.CTkButton(
+            btn_bar,
+            text="Unlock",
+            width=100,
+            height=34,
+            corner_radius=8,
+            font=(FONT_FAMILY, 12, "bold"),
+            fg_color=ACCENT_COLOR,
+            hover_color=ACCENT_HOVER,
+            text_color=ACCENT_TEXT,
+            command=self._verify
+        )
+        self.ok_btn.pack(side="right")
+
+    def _verify(self):
+        pw = self.pw_entry.get()
+        if not pw:
+            self.error_label.configure(text="Please enter your Windows password.")
+            return
+
+        self.ok_btn.configure(state="disabled", text="Verifying...")
+        self.update()
+
+        valid = win_auth.verify_windows_password(pw)
+        if valid:
+            self.destroy()
+            self.on_success()
+        else:
+            self.ok_btn.configure(state="normal", text="Unlock")
+            self.error_label.configure(text="Incorrect Windows password.")
+
+
 class SecureVaultApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("DeepStore — Encrypted Vault")
+        self.title("DeepStore — Encrypted Windows Vault")
         self.geometry("1020x720")
         self.minsize(860, 600)
         self.configure(fg_color=BG_COLOR)
@@ -230,7 +347,7 @@ class SecureVaultApp(ctk.CTk):
 
 
 class LoginFrame(ctk.CTkFrame):
-    """Refined macOS unlock / vault setup view."""
+    """Refined Windows unlock / vault setup view."""
     def __init__(self, master, app: SecureVaultApp, initial_notice: str = ""):
         super().__init__(master, fg_color="transparent")
         self.app = app
@@ -257,7 +374,7 @@ class LoginFrame(ctk.CTkFrame):
         ).grid(row=0, column=0, columnspan=2, pady=(36, 4))
 
         sub = ("Initialize your encrypted vault with a secure passkey."
-               if self.first_run else "Enter your master passkey or use Touch ID.")
+               if self.first_run else "Enter your master passkey or unlock with Windows Password.")
         ctk.CTkLabel(
             wrapper,
             text=sub,
@@ -327,15 +444,15 @@ class LoginFrame(ctk.CTkFrame):
         )
         self.submit_btn.grid(row=btn_row + 1, column=0, columnspan=2, padx=40, pady=(6, 12))
 
-        # Touch ID / Biometrics button
-        has_touch_id = biometrics.touch_id_available()
-        touch_id_enabled = self.app.meta.get("touch_id_enabled", False)
-        has_key_cached = biometrics.is_key_stored()
+        # Windows Auth / Quick Unlock button
+        has_win_auth = win_auth.windows_auth_available()
+        win_auth_enabled = self.app.meta.get("windows_auth_enabled", False)
+        has_key_cached = win_auth.is_key_stored()
 
-        if not self.first_run and has_touch_id and (touch_id_enabled or has_key_cached):
-            self.touch_btn = ctk.CTkButton(
+        if not self.first_run and has_win_auth and (win_auth_enabled or has_key_cached):
+            self.win_btn = ctk.CTkButton(
                 wrapper,
-                text="Touch ID Unlock",
+                text="🪟  Unlock with Windows Password",
                 width=300,
                 height=38,
                 corner_radius=10,
@@ -345,14 +462,14 @@ class LoginFrame(ctk.CTkFrame):
                 border_color=BORDER_COLOR,
                 text_color=TEXT_PRIMARY,
                 hover_color=CARD_HOVER_BG,
-                command=self.touch_id_unlock
+                command=self.windows_password_unlock
             )
-            self.touch_btn.grid(row=btn_row + 2, column=0, columnspan=2, padx=40, pady=(0, 10))
+            self.win_btn.grid(row=btn_row + 2, column=0, columnspan=2, padx=40, pady=(0, 10))
 
-            # Helper to reset passkey cache if user is stuck
+            # Helper to reset passkey cache if user wants
             ctk.CTkButton(
                 wrapper,
-                text="Clear cached passkey",
+                text="Clear Windows cached passkey",
                 font=(FONT_FAMILY, 11),
                 text_color=TEXT_MUTED,
                 fg_color="transparent",
@@ -392,7 +509,7 @@ class LoginFrame(ctk.CTkFrame):
                 key = storage.create_vault(password)
                 self.app.key = key
                 self.app.data = storage.load_data(key)
-                self.maybe_offer_touch_id(key)
+                self.maybe_offer_windows_auth(key)
                 self.app.show_vault()
             except Exception as e:
                 self.error_label.configure(text=f"Setup error: {str(e)}", text_color=DANGER_COLOR)
@@ -401,57 +518,60 @@ class LoginFrame(ctk.CTkFrame):
                 key = storage.unlock_vault(password)
                 self.app.key = key
                 self.app.data = storage.load_data(key)
-                # If Touch ID is enabled, keep Keychain key in sync
-                if self.app.meta.get("touch_id_enabled"):
-                    biometrics.store_key(key)
+                # If Windows Auth is enabled, keep Credential Manager key in sync
+                if self.app.meta.get("windows_auth_enabled"):
+                    win_auth.store_key(key)
                 self.app.show_vault()
             except crypto_utils.WrongPassword:
-                self.error_label.configure(text="Incorrect passkey.", text_color=DANGER_COLOR)
+                self.error_label.configure(text="Incorrect master passkey.", text_color=DANGER_COLOR)
             except Exception as e:
                 self.error_label.configure(text=f"Error: {str(e)}", text_color=DANGER_COLOR)
 
-    def maybe_offer_touch_id(self, key: bytes):
-        if not biometrics.touch_id_available():
+    def maybe_offer_windows_auth(self, key: bytes):
+        if not win_auth.windows_auth_available():
             return
         if messagebox.askyesno(
-            "Enable Touch ID / Passkey?",
-            "Would you like to enable Touch ID to quickly unlock DeepStore?\n\n"
-            "You can always change this in Settings at any time."
+            "Enable Windows Password Unlock?",
+            "Would you like to enable quick unlock using your Windows account password?\n\n"
+            "Your vault key will be saved securely in Windows Credential Manager.\n"
+            "You can enable or disable this in Settings at any time."
         ):
-            biometrics.store_key(key)
-            self.app.meta["touch_id_enabled"] = True
+            win_auth.store_key(key)
+            self.app.meta["windows_auth_enabled"] = True
             storage.save_meta(self.app.meta)
 
-    def touch_id_unlock(self):
-        if hasattr(self, "touch_btn"):
-            self.touch_btn.configure(state="disabled", text="Verifying Touch ID...")
-        try:
-            success = biometrics.authenticate_touch_id("Unlock DeepStore Vault", update_pump=self.app.update)
-            if not success:
-                self.error_label.configure(text="Touch ID cancelled or unverified. Use passkey.", text_color=DANGER_COLOR)
-                return
-            key = biometrics.retrieve_key()
-            if not key:
-                self.error_label.configure(text="No cached passkey found in Keychain. Use passkey.", text_color=DANGER_COLOR)
-                return
+    def windows_password_unlock(self):
+        key = win_auth.retrieve_key()
+        if not key:
+            self.error_label.configure(
+                text="No cached key found in Windows Credential Manager. Use master passkey.",
+                text_color=DANGER_COLOR
+            )
+            return
+
+        def on_verified():
             try:
                 self.app.data = storage.load_data(key)
                 self.app.key = key
                 self.app.show_vault()
             except Exception:
-                self.error_label.configure(
-                    text="Cached passkey out of sync. Please unlock with master passkey.",
-                    text_color=DANGER_COLOR
-                )
-        finally:
-            if hasattr(self, "touch_btn") and self.touch_btn.winfo_exists():
-                self.touch_btn.configure(state="normal", text="Touch ID Unlock")
+                # Guard: LoginFrame may have been destroyed if show_vault() failed midway
+                try:
+                    if self.winfo_exists() and hasattr(self, "error_label") and self.error_label.winfo_exists():
+                        self.error_label.configure(
+                            text="Cached key out of sync. Please unlock with master passkey.",
+                            text_color=DANGER_COLOR
+                        )
+                except Exception:
+                    pass
+
+        WindowsPasswordDialog(self.app, on_success=on_verified)
 
     def clear_cached_passkey(self):
-        biometrics.clear_key()
-        self.app.meta["touch_id_enabled"] = False
+        win_auth.clear_key()
+        self.app.meta["windows_auth_enabled"] = False
         storage.save_meta(self.app.meta)
-        ToastNotification(self.app, "Cached passkey cleared from Keychain.", duration_ms=2000)
+        ToastNotification(self.app, "Cached passkey cleared from Windows Credential Manager.", duration_ms=2000, icon="🛡️")
         self.app.show_login()
 
 
@@ -460,23 +580,16 @@ class VaultFrame(ctk.CTkFrame):
     def __init__(self, master, app: SecureVaultApp):
         super().__init__(master, fg_color="transparent")
         self.app = app
-        self.revealed: Set[str] = set()
+        self.revealed_cards: Set[str] = set()
 
-        self.build_top_bar()
-        self.build_category_bar()
-        self.build_grid_area()
+        # Top Bar
+        self.top_bar = ctk.CTkFrame(self, height=64, fg_color=CARD_BG, corner_radius=0)
+        self.top_bar.pack(fill="x", side="top")
+        self.top_bar.pack_propagate(False)
 
-        self.refresh()
-
-    # ---------- Top Bar ----------
-
-    def build_top_bar(self):
-        bar = ctk.CTkFrame(self, fg_color="transparent")
-        bar.pack(fill="x", padx=28, pady=(20, 8))
-
-        # Brand Title + Item Count Badge
-        brand_frame = ctk.CTkFrame(bar, fg_color="transparent")
-        brand_frame.pack(side="left")
+        # Title / Brand
+        brand_frame = ctk.CTkFrame(self.top_bar, fg_color="transparent")
+        brand_frame.pack(side="left", padx=24)
 
         ctk.CTkLabel(
             brand_frame,
@@ -485,274 +598,281 @@ class VaultFrame(ctk.CTkFrame):
             text_color=TEXT_PRIMARY
         ).pack(side="left")
 
-        self.count_badge = ctk.CTkLabel(
+        vault_badge = ctk.CTkFrame(
             brand_frame,
-            text="0 items",
-            font=(FONT_FAMILY, 11),
-            text_color=TEXT_SECONDARY,
-            fg_color=CARD_BG,
-            corner_radius=10,
-            padx=8,
-            pady=2
+            fg_color=ACCENT_SUBTLE,
+            corner_radius=6
         )
-        self.count_badge.pack(side="left", padx=(10, 0))
+        vault_badge.pack(side="left", padx=(10, 0))
+        ctk.CTkLabel(
+            vault_badge,
+            text="VAULT",
+            font=(FONT_FAMILY, 11, "bold"),
+            text_color=ACCENT_COLOR
+        ).pack(padx=8, pady=2)
 
-        # Right Action Controls
-        right_box = ctk.CTkFrame(bar, fg_color="transparent")
-        right_box.pack(side="right")
+        # Action Buttons on Right
+        actions_frame = ctk.CTkFrame(self.top_bar, fg_color="transparent")
+        actions_frame.pack(side="right", padx=24)
 
-        # Search box
-        self.search_entry = ctk.CTkEntry(
-            right_box,
-            placeholder_text="Search vault...",
-            width=180,
-            height=32,
-            corner_radius=8,
-            border_color=BORDER_COLOR,
-            fg_color=CARD_BG
-        )
-        self.search_entry.pack(side="left", padx=(0, 10))
-        self.search_entry.bind("<KeyRelease>", self.on_search)
-
-        # Add item button (Yellow accent)
+        # 1. New Entry Button (Golden Yellow Accent)
         ctk.CTkButton(
-            right_box,
-            text="+ Add Password",
-            height=32,
-            corner_radius=8,
+            actions_frame,
+            text="+ Add Item",
             font=(FONT_FAMILY, 12, "bold"),
             fg_color=ACCENT_COLOR,
             hover_color=ACCENT_HOVER,
             text_color=ACCENT_TEXT,
-            command=self.add_entry_dialog
-        ).pack(side="left", padx=(0, 10))
-
-        # Settings Dialog Button
-        ctk.CTkButton(
-            right_box,
-            text="⚙️ Settings",
-            width=85,
-            height=32,
+            width=100,
+            height=34,
             corner_radius=8,
+            command=self.open_add_modal
+        ).pack(side="left", padx=4)
+
+        # 2. Settings Button
+        ctk.CTkButton(
+            actions_frame,
+            text="⚙️ Preferences",
             font=(FONT_FAMILY, 12),
-            fg_color=CARD_BG,
+            fg_color=BG_COLOR,
+            hover_color=CARD_HOVER_BG,
             border_width=1,
             border_color=BORDER_COLOR,
             text_color=TEXT_PRIMARY,
-            hover_color=CARD_HOVER_BG,
-            command=self.open_settings_dialog
-        ).pack(side="left", padx=(0, 8))
-
-        # Lock Button
-        ctk.CTkButton(
-            right_box,
-            text="🔒 Lock",
-            width=65,
-            height=32,
+            width=115,
+            height=34,
             corner_radius=8,
+            command=self.open_settings_modal
+        ).pack(side="left", padx=4)
+
+        # 3. Lock Button
+        ctk.CTkButton(
+            actions_frame,
+            text="🔒 Lock",
             font=(FONT_FAMILY, 12),
             fg_color="transparent",
+            hover_color=CARD_HOVER_BG,
             border_width=1,
             border_color=BORDER_COLOR,
             text_color=TEXT_PRIMARY,
-            hover_color=CARD_HOVER_BG,
-            command=self.app.lock
-        ).pack(side="left")
+            width=80,
+            height=34,
+            corner_radius=8,
+            command=lambda: self.app.lock("Vault locked.")
+        ).pack(side="left", padx=4)
 
-    def on_search(self, event=None):
+        # Category Bar & Search Bar Frame
+        control_bar = ctk.CTkFrame(self, fg_color="transparent", height=48)
+        control_bar.pack(fill="x", padx=24, pady=(16, 8))
+
+        # Search Box
+        self.search_entry = ctk.CTkEntry(
+            control_bar,
+            placeholder_text="🔍 Search credentials, websites, emails...",
+            width=320,
+            height=36,
+            corner_radius=8,
+            border_color=BORDER_COLOR,
+            fg_color=CARD_BG,
+            text_color=TEXT_PRIMARY
+        )
+        self.search_entry.pack(side="right")
+        self.search_entry.bind("<KeyRelease>", self._on_search)
+
+        # Categories Frame
+        self.cats_frame = ctk.CTkFrame(control_bar, fg_color="transparent")
+        self.cats_frame.pack(side="left", fill="x", expand=True)
+
+        # Main 3x3 Card Grid Container
+        self.grid_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.grid_container.pack(fill="both", expand=True, padx=24, pady=4)
+
+        # Pagination & Stats Footer
+        self.footer = ctk.CTkFrame(self, height=44, fg_color="transparent")
+        self.footer.pack(fill="x", side="bottom", padx=24, pady=(0, 12))
+
+        self.render_categories()
+        self.render_grid()
+
+    # ---------- Category Bar Rendering ----------
+
+    def render_categories(self):
+        for w in self.cats_frame.winfo_children():
+            w.destroy()
+
+        cats = ["All"] + self.app.data.get("categories", storage.DEFAULT_CATEGORIES)
+        for cat in cats:
+            is_selected = (cat == self.app.current_category)
+            fg = ACCENT_COLOR if is_selected else CARD_BG
+            tc = ACCENT_TEXT if is_selected else TEXT_PRIMARY
+            border = ACCENT_COLOR if is_selected else BORDER_COLOR
+
+            btn = ctk.CTkButton(
+                self.cats_frame,
+                text=cat,
+                font=(FONT_FAMILY, 12, "bold" if is_selected else "normal"),
+                fg_color=fg,
+                text_color=tc,
+                border_width=1,
+                border_color=border,
+                hover_color=ACCENT_HOVER if is_selected else CARD_HOVER_BG,
+                height=32,
+                corner_radius=8,
+                command=lambda c=cat: self.select_category(c)
+            )
+            btn.pack(side="left", padx=(0, 6))
+
+        # Category Manage Button
+        cat_manage_text = "Done" if self.app.category_edit_mode else "Edit Tags"
+        ctk.CTkButton(
+            self.cats_frame,
+            text=cat_manage_text,
+            font=(FONT_FAMILY, 10, "bold"),
+            fg_color="transparent",
+            text_color=ACCENT_COLOR if self.app.category_edit_mode else TEXT_MUTED,
+            hover_color=CARD_HOVER_BG,
+            height=30,
+            width=65,
+            corner_radius=6,
+            command=self.toggle_category_edit_mode
+        ).pack(side="left", padx=(4, 0))
+
+        if self.app.category_edit_mode:
+            ctk.CTkButton(
+                self.cats_frame,
+                text="+ Add Tag",
+                font=(FONT_FAMILY, 11),
+                fg_color=BG_COLOR,
+                border_width=1,
+                border_color=BORDER_COLOR,
+                text_color=TEXT_PRIMARY,
+                hover_color=CARD_HOVER_BG,
+                height=30,
+                width=80,
+                corner_radius=6,
+                command=self.open_add_category_dialog
+            ).pack(side="left", padx=(4, 0))
+
+    def select_category(self, cat: str):
+        self.app.current_category = cat
+        self.app.page = 0
+        self.render_categories()
+        self.render_grid()
+
+    def toggle_category_edit_mode(self):
+        self.app.category_edit_mode = not self.app.category_edit_mode
+        self.render_categories()
+
+    def open_add_category_dialog(self):
+        dialog = ctk.CTkInputDialog(text="Enter new category name:", title="Add Category")
+        name = dialog.get_input()
+        if name:
+            if storage.add_category(self.app.data, name):
+                self.app.save()
+                self.render_categories()
+                ToastNotification(self.app, f"Category '{name}' added.", icon="🏷️")
+            else:
+                messagebox.showerror("Error", "Category already exists or invalid.")
+
+    # ---------- Search & Filtering ----------
+
+    def _on_search(self, event=None):
         self.app.search_query = self.search_entry.get().strip().lower()
         self.app.page = 0
         self.render_grid()
 
-    # ---------- Category Bar ----------
-
-    def build_category_bar(self):
-        wrap = ctk.CTkFrame(self, fg_color="transparent")
-        wrap.pack(fill="x", padx=28, pady=(4, 6))
-
-        self.cat_scroll = ctk.CTkScrollableFrame(
-            wrap,
-            height=46,
-            orientation="horizontal",
-            fg_color="transparent"
-        )
-        self.cat_scroll.pack(side="left", fill="x", expand=True)
-
-        self.edit_btn = ctk.CTkButton(
-            wrap,
-            text="Edit",
-            width=50,
-            height=28,
-            corner_radius=6,
-            font=(FONT_FAMILY, 11),
-            fg_color="transparent",
-            border_width=1,
-            border_color=BORDER_COLOR,
-            text_color=TEXT_SECONDARY,
-            hover_color=CARD_HOVER_BG,
-            command=self.toggle_edit_mode
-        )
-        self.edit_btn.pack(side="right", padx=(8, 0))
-
-    def toggle_edit_mode(self):
-        self.app.category_edit_mode = not self.app.category_edit_mode
-        self.edit_btn.configure(
-            text="Done" if self.app.category_edit_mode else "Edit",
-            fg_color=ACCENT_COLOR if self.app.category_edit_mode else "transparent",
-            text_color=ACCENT_TEXT if self.app.category_edit_mode else TEXT_SECONDARY
-        )
-        self.render_categories()
-
-    def render_categories(self):
-        for w in self.cat_scroll.winfo_children():
-            w.destroy()
-
-        chips = ["All"] + self.app.data["categories"]
-        for name in chips:
-            chip_frame = ctk.CTkFrame(self.cat_scroll, fg_color="transparent")
-            chip_frame.pack(side="left", padx=3)
-
-            is_selected = (name == self.app.current_category)
-            btn = ctk.CTkButton(
-                chip_frame,
-                text=name,
-                corner_radius=14,
-                height=28,
-                font=(FONT_FAMILY, 12, "bold" if is_selected else "normal"),
-                fg_color=ACCENT_COLOR if is_selected else CARD_BG,
-                hover_color=ACCENT_HOVER if is_selected else CARD_HOVER_BG,
-                text_color=ACCENT_TEXT if is_selected else TEXT_PRIMARY,
-                border_width=0 if is_selected else 1,
-                border_color=BORDER_COLOR,
-                command=lambda n=name: self.select_category(n)
-            )
-            btn.pack(side="left")
-
-            if self.app.category_edit_mode and name not in ("All", "Uncategorized"):
-                ctk.CTkButton(
-                    chip_frame,
-                    text="✕",
-                    width=20,
-                    height=20,
-                    corner_radius=10,
-                    font=(FONT_FAMILY, 10, "bold"),
-                    fg_color=DANGER_COLOR,
-                    hover_color=DANGER_HOVER,
-                    text_color="#FFFFFF",
-                    command=lambda n=name: self.delete_category(n)
-                ).pack(side="left", padx=(2, 0))
-
-        if self.app.category_edit_mode:
-            ctk.CTkButton(
-                self.cat_scroll,
-                text="+ New",
-                width=70,
-                height=28,
-                corner_radius=14,
-                font=(FONT_FAMILY, 11),
-                fg_color="transparent",
-                border_width=1,
-                border_color=ACCENT_COLOR,
-                text_color=ACCENT_COLOR,
-                hover_color=CARD_HOVER_BG,
-                command=self.add_category
-            ).pack(side="left", padx=4)
-
-    def select_category(self, name: str):
-        self.app.current_category = name
-        self.app.page = 0
-        self.render_categories()
-        self.render_grid()
-
-    def add_category(self):
-        dialog = ctk.CTkInputDialog(text="Enter category name:", title="New Category")
-        name = dialog.get_input()
-        if name and name.strip():
-            if storage.add_category(self.app.data, name.strip()):
-                self.app.save()
-                self.render_categories()
-            else:
-                messagebox.showinfo("Category Exists", "A category with this name already exists.")
-
-    def delete_category(self, name: str):
-        if messagebox.askyesno("Delete Category", f"Delete '{name}'? Existing entries will move to 'Uncategorized'."):
-            storage.delete_category(self.app.data, name)
-            if self.app.current_category == name:
-                self.app.current_category = "All"
-            self.app.save()
-            self.render_categories()
-            self.render_grid()
-
-    # ---------- Grid Area ----------
-
-    def build_grid_area(self):
-        self.grid_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.grid_container.pack(fill="both", expand=True, padx=28, pady=(4, 4))
-
-        self.pager = ctk.CTkFrame(self, fg_color="transparent")
-        self.pager.pack(fill="x", padx=28, pady=(0, 16))
-
     def get_filtered_entries(self):
-        entries = self.app.data["entries"]
+        entries = self.app.data.get("entries", [])
+        # Filter by category
         if self.app.current_category != "All":
             entries = [e for e in entries if e.get("category") == self.app.current_category]
+        # Filter by search
         if self.app.search_query:
             q = self.app.search_query
             entries = [
                 e for e in entries
-                if q in e.get("service", "").lower() or q in e.get("email", "").lower()
+                if q in e.get("service", "").lower()
+                or q in e.get("email", "").lower()
+                or q in e.get("category", "").lower()
+                or q in e.get("notes", "").lower()
             ]
         return entries
+
+    # ---------- 3x3 Card Grid Rendering ----------
 
     def render_grid(self):
         for w in self.grid_container.winfo_children():
             w.destroy()
-        for w in self.pager.winfo_children():
-            w.destroy()
 
         entries = self.get_filtered_entries()
-        total_items = len(self.app.data.get("entries", []))
-        self.count_badge.configure(text=f"{total_items} items")
+        total_items = len(entries)
+        total_pages = max(1, (total_items + PAGE_SIZE - 1) // PAGE_SIZE)
+        if self.app.page >= total_pages:
+            self.app.page = max(0, total_pages - 1)
 
-        start = self.app.page * PAGE_SIZE
-        page_entries = entries[start:start + PAGE_SIZE]
+        start_idx = self.app.page * PAGE_SIZE
+        page_entries = entries[start_idx: start_idx + PAGE_SIZE]
 
-        for col in range(GRID_COLS):
-            self.grid_container.grid_columnconfigure(col, weight=1, uniform="col")
-        for row in range(GRID_ROWS):
-            self.grid_container.grid_rowconfigure(row, weight=1, uniform="row")
+        if not page_entries:
+            empty = ctk.CTkFrame(self.grid_container, fg_color="transparent")
+            empty.place(relx=0.5, rely=0.5, anchor="center")
 
-        if not entries:
-            empty_box = ctk.CTkFrame(self.grid_container, fg_color=CARD_BG, corner_radius=16, border_width=1, border_color=BORDER_COLOR)
-            empty_box.grid(row=1, column=1, padx=20, pady=40, sticky="nsew")
             ctk.CTkLabel(
-                empty_box,
-                text="🔑",
+                empty,
+                text="📂",
                 font=(FONT_FAMILY, 36)
-            ).pack(pady=(24, 6))
+            ).pack(pady=(0, 6))
+
             ctk.CTkLabel(
-                empty_box,
-                text="No passwords found",
+                empty,
+                text="No credentials found",
                 font=(FONT_FAMILY, 15, "bold"),
                 text_color=TEXT_PRIMARY
-            ).pack(pady=(0, 4))
+            ).pack()
+
             ctk.CTkLabel(
-                empty_box,
-                text="Click '+ Add Password' above to create one.",
+                empty,
+                text="Click '+ Add Item' above to create your first encrypted credential.",
                 font=(FONT_FAMILY, 12),
                 text_color=TEXT_SECONDARY
-            ).pack(pady=(0, 24))
+            ).pack(pady=(4, 0))
         else:
-            for i, entry in enumerate(page_entries):
-                r, c = divmod(i, GRID_COLS)
-                card = self.build_card(self.grid_container, entry)
-                card.grid(row=r, column=c, padx=6, pady=6, sticky="nsew")
+            # Configure 3x3 grid columns and rows with equal weight
+            for c in range(GRID_COLS):
+                self.grid_container.columnconfigure(c, weight=1, uniform="col", pad=12)
+            for r in range(GRID_ROWS):
+                self.grid_container.rowconfigure(r, weight=1, uniform="row", pad=12)
 
-        total_pages = max(1, (len(entries) + PAGE_SIZE - 1) // PAGE_SIZE)
+            for idx, entry in enumerate(page_entries):
+                r = idx // GRID_COLS
+                c = idx % GRID_COLS
+                card = self._build_card(self.grid_container, entry)
+                card.grid(row=r, column=c, sticky="nsew", padx=6, pady=6)
+
+        self._render_footer(total_items, total_pages)
+
+    def _render_footer(self, total_items: int, total_pages: int):
+        for w in self.footer.winfo_children():
+            w.destroy()
+
+        # Item count stats
+        cat_str = f" in '{self.app.current_category}'" if self.app.current_category != "All" else ""
+        stats_text = f"{total_items} item{'s' if total_items != 1 else ''}{cat_str}"
+        ctk.CTkLabel(
+            self.footer,
+            text=stats_text,
+            font=(FONT_FAMILY, 11),
+            text_color=TEXT_SECONDARY
+        ).pack(side="left")
+
+        # Pagination controls
         if total_pages > 1:
+            p_frame = ctk.CTkFrame(self.footer, fg_color="transparent")
+            p_frame.pack(side="right")
+
             ctk.CTkButton(
-                self.pager,
-                text="◀ Prev",
+                p_frame,
+                text="‹ Previous",
                 width=75,
                 height=28,
                 corner_radius=6,
@@ -760,22 +880,21 @@ class VaultFrame(ctk.CTkFrame):
                 fg_color=CARD_BG,
                 border_width=1,
                 border_color=BORDER_COLOR,
-                text_color=TEXT_PRIMARY,
-                hover_color=CARD_HOVER_BG,
-                command=self.prev_page,
-                state=("normal" if self.app.page > 0 else "disabled")
-            ).pack(side="left")
+                text_color=TEXT_PRIMARY if self.app.page > 0 else TEXT_MUTED,
+                state="normal" if self.app.page > 0 else "disabled",
+                command=self.prev_page
+            ).pack(side="left", padx=4)
 
             ctk.CTkLabel(
-                self.pager,
-                text=f"Page {self.app.page + 1} of {total_pages} ({len(entries)} matching)",
+                p_frame,
+                text=f"Page {self.app.page + 1} of {total_pages}",
                 font=(FONT_FAMILY, 11),
-                text_color=TEXT_SECONDARY
-            ).pack(side="left", padx=12)
+                text_color=TEXT_PRIMARY
+            ).pack(side="left", padx=8)
 
             ctk.CTkButton(
-                self.pager,
-                text="Next ▶",
+                p_frame,
+                text="Next ›",
                 width=75,
                 height=28,
                 corner_radius=6,
@@ -783,131 +902,151 @@ class VaultFrame(ctk.CTkFrame):
                 fg_color=CARD_BG,
                 border_width=1,
                 border_color=BORDER_COLOR,
-                text_color=TEXT_PRIMARY,
-                hover_color=CARD_HOVER_BG,
-                command=self.next_page,
-                state=("normal" if self.app.page < total_pages - 1 else "disabled")
-            ).pack(side="left")
+                text_color=TEXT_PRIMARY if self.app.page < total_pages - 1 else TEXT_MUTED,
+                state="normal" if self.app.page < total_pages - 1 else "disabled",
+                command=self.next_page
+            ).pack(side="left", padx=4)
 
     def prev_page(self):
-        self.app.page = max(0, self.app.page - 1)
-        self.render_grid()
+        if self.app.page > 0:
+            self.app.page -= 1
+            self.render_grid()
 
     def next_page(self):
-        self.app.page += 1
-        self.render_grid()
+        entries = self.get_filtered_entries()
+        total_pages = max(1, (len(entries) + PAGE_SIZE - 1) // PAGE_SIZE)
+        if self.app.page < total_pages - 1:
+            self.app.page += 1
+            self.render_grid()
 
-    # ---------- Card Cell (Show at top, Twin Copy at bottom) ----------
+    # ---------- Refined Card Layout ----------
 
-    def build_card(self, parent, entry: dict):
+    def _build_card(self, parent, entry: dict) -> ctk.CTkFrame:
+        """
+        Builds a single responsive card:
+        - TOP: Service Name + Category Tag + Show/Hide Toggle + 3-dots Menu
+        - MIDDLE: Username/Email + Password preview (monospace / dots)
+        - BOTTOM: Twin Copy Buttons (Copy User, Copy Pass) neatly close together
+        """
+        eid = entry.get("id", "")
+        revealed = eid in self.revealed_cards
+
         card = ctk.CTkFrame(
             parent,
-            corner_radius=16,
+            corner_radius=14,
             fg_color=CARD_BG,
             border_width=1,
             border_color=BORDER_COLOR
         )
 
-        # 1. TOP ROW: Service Name + SHOW/HIDE Button + More Options Menu
-        top_row = ctk.CTkFrame(card, fg_color="transparent")
-        top_row.pack(fill="x", padx=14, pady=(12, 6))
+        # Hover elevation effect
+        def _on_enter(e):
+            try:
+                card.configure(border_color=BORDER_HIGHLIGHT, fg_color=CARD_HOVER_BG)
+            except Exception:
+                pass
 
-        # Title & Category Tag
-        title_box = ctk.CTkFrame(top_row, fg_color="transparent")
-        title_box.pack(side="left", fill="x", expand=True)
+        def _on_leave(e):
+            try:
+                card.configure(border_color=BORDER_COLOR, fg_color=CARD_BG)
+            except Exception:
+                pass
 
-        service_text = entry.get("service", "Untitled")
-        ctk.CTkLabel(
-            title_box,
-            text=service_text,
+        card.bind("<Enter>", _on_enter)
+        card.bind("<Leave>", _on_leave)
+
+        # === TOP SECTION ===
+        top_bar = ctk.CTkFrame(card, fg_color="transparent")
+        top_bar.pack(fill="x", padx=12, pady=(10, 4))
+
+        # Service Name & Category tag
+        left_header = ctk.CTkFrame(top_bar, fg_color="transparent")
+        left_header.pack(side="left", fill="x", expand=True)
+
+        service_lbl = ctk.CTkLabel(
+            left_header,
+            text=entry.get("service", "Untitled"),
             font=(FONT_FAMILY, 14, "bold"),
             text_color=TEXT_PRIMARY,
             anchor="w"
-        ).pack(side="top", anchor="w")
+        )
+        service_lbl.pack(anchor="w")
 
         cat_badge = ctk.CTkLabel(
-            title_box,
+            left_header,
             text=entry.get("category", "General"),
             font=(FONT_FAMILY, 10),
             text_color=ACCENT_COLOR,
             anchor="w"
         )
-        cat_badge.pack(side="top", anchor="w")
+        cat_badge.pack(anchor="w")
 
-        # Top Controls: Show/Hide Button at Top + Action Menu
-        top_actions = ctk.CTkFrame(top_row, fg_color="transparent")
-        top_actions.pack(side="right")
+        # Top Right: Show/Hide Toggle Eye + Context Action Menu (⋯)
+        right_actions = ctk.CTkFrame(top_bar, fg_color="transparent")
+        right_actions.pack(side="right")
 
-        revealed = entry["id"] in self.revealed
-        show_btn = ctk.CTkButton(
-            top_actions,
-            text="Hide" if revealed else "Show",
-            width=48,
-            height=24,
+        eye_btn = ctk.CTkButton(
+            right_actions,
+            text="🙈" if revealed else "👁️",
+            width=28,
+            height=28,
             corner_radius=6,
+            fg_color="transparent",
+            hover_color=BG_COLOR,
             font=(FONT_FAMILY, 10, "bold"),
-            fg_color=ACCENT_COLOR if revealed else "transparent",
-            border_width=1,
-            border_color=ACCENT_COLOR,
-            text_color=ACCENT_TEXT if revealed else TEXT_PRIMARY,
-            hover_color=ACCENT_HOVER,
-            command=lambda e=entry: self.toggle_reveal(e)
+            command=lambda: self.toggle_reveal(eid)
         )
-        show_btn.pack(side="left", padx=(0, 4))
+        eye_btn.pack(side="left", padx=(0, 2))
 
         menu_btn = ctk.CTkButton(
-            top_actions,
+            right_actions,
             text="⋯",
-            width=26,
-            height=24,
+            width=28,
+            height=28,
             corner_radius=6,
-            font=(FONT_FAMILY, 12, "bold"),
             fg_color="transparent",
+            hover_color=BG_COLOR,
+            font=(FONT_FAMILY, 12, "bold"),
             text_color=TEXT_SECONDARY,
-            hover_color=CARD_HOVER_BG,
-            command=lambda e=entry: self.entry_menu(e)
+            command=lambda: self.open_entry_menu(entry, menu_btn)
         )
         menu_btn.pack(side="left")
 
-        # 2. MIDDLE ROWS: Username / Email & Password Display
-        content_box = ctk.CTkFrame(card, fg_color="transparent")
-        content_box.pack(fill="x", padx=14, pady=(2, 8))
+        # === MIDDLE SECTION: Credentials ===
+        mid = ctk.CTkFrame(card, fg_color="transparent")
+        mid.pack(fill="x", padx=12, pady=(4, 8))
 
-        # Username / Email
-        email_val = entry.get("email", "—")
-        email_label = ctk.CTkLabel(
-            content_box,
-            text=f"👤 {email_val}",
+        # Email / Username
+        email_str = entry.get("email", "") or "—"
+        email_lbl = ctk.CTkLabel(
+            mid,
+            text=email_str,
             font=(FONT_FAMILY, 11),
             text_color=TEXT_SECONDARY,
             anchor="w"
         )
-        email_label.pack(fill="x", pady=(0, 3))
+        email_lbl.pack(anchor="w", fill="x")
 
-        # Password (Masked or Plaintext)
-        pw_raw = entry.get("password", "")
-        pw_display = pw_raw if revealed else "••••••••••••"
-        pw_label = ctk.CTkLabel(
-            content_box,
-            text=f"🔑 {pw_display}",
+        # Password Display (Monospace if revealed, Bullet dots if masked)
+        raw_pw = entry.get("password", "")
+        pw_str = raw_pw if revealed else ("•" * min(14, max(8, len(raw_pw))))
+        pw_lbl = ctk.CTkLabel(
+            mid,
+            text=pw_str,
             font=(MONO_FONT if revealed else FONT_FAMILY, 11),
-            text_color=TEXT_PRIMARY if revealed else TEXT_MUTED,
+            text_color=ACCENT_COLOR if revealed else TEXT_MUTED,
             anchor="w"
         )
-        pw_label.pack(fill="x")
+        pw_lbl.pack(anchor="w", fill="x", pady=(2, 0))
 
-        # 3. BOTTOM ROW: TWO COPY BUTTONS CLOSE TO EACH OTHER
-        bottom_row = ctk.CTkFrame(card, fg_color="transparent")
-        bottom_row.pack(fill="x", padx=14, pady=(0, 12))
+        # === BOTTOM SECTION: Twin Copy Buttons ===
+        bot = ctk.CTkFrame(card, fg_color="transparent")
+        bot.pack(fill="x", padx=12, pady=(0, 10))
 
-        # Twin Copy Buttons Grouped Side-by-Side Close Together
-        copy_group = ctk.CTkFrame(bottom_row, fg_color="transparent")
-        copy_group.pack(fill="x", expand=True)
-
-        copy_email_btn = ctk.CTkButton(
-            copy_group,
-            text="📋 Copy User",
-            height=26,
+        btn_copy_user = ctk.CTkButton(
+            bot,
+            text="Copy User",
+            height=28,
             corner_radius=6,
             font=(FONT_FAMILY, 10),
             fg_color=BG_COLOR,
@@ -915,248 +1054,322 @@ class VaultFrame(ctk.CTkFrame):
             border_color=BORDER_COLOR,
             text_color=TEXT_PRIMARY,
             hover_color=CARD_HOVER_BG,
-            command=lambda e=entry: self.app.copy_to_clipboard(e.get("email", ""), "Username")
+            command=lambda: self.app.copy_to_clipboard(entry.get("email", ""), label="Username")
         )
-        copy_email_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        btn_copy_user.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
-        copy_pw_btn = ctk.CTkButton(
-            copy_group,
-            text="🔑 Copy Pass",
-            height=26,
+        btn_copy_pass = ctk.CTkButton(
+            bot,
+            text="Copy Pass",
+            height=28,
             corner_radius=6,
             font=(FONT_FAMILY, 10, "bold"),
-            fg_color=ACCENT_SUBTLE,
-            border_width=1,
-            border_color=ACCENT_COLOR,
-            text_color=TEXT_PRIMARY,
-            hover_color=ACCENT_COLOR,
-            command=lambda e=entry: self.app.copy_to_clipboard(e.get("password", ""), "Password")
+            fg_color=ACCENT_COLOR,
+            hover_color=ACCENT_HOVER,
+            text_color=ACCENT_TEXT,
+            command=lambda: self.app.copy_to_clipboard(entry.get("password", ""), label="Password")
         )
-        copy_pw_btn.pack(side="left", fill="x", expand=True, padx=(4, 0))
-
-        # Responsive card hover effect
-        def on_enter(e):
-            try:
-                card.configure(border_color=ACCENT_COLOR)
-            except Exception:
-                pass
-
-        def on_leave(e):
-            try:
-                card.configure(border_color=BORDER_COLOR)
-            except Exception:
-                pass
-
-        card.bind("<Enter>", on_enter)
-        card.bind("<Leave>", on_leave)
+        btn_copy_pass.pack(side="left", fill="x", expand=True, padx=(4, 0))
 
         return card
 
-    def toggle_reveal(self, entry: dict):
-        if entry["id"] in self.revealed:
-            self.revealed.remove(entry["id"])
+    def toggle_reveal(self, eid: str):
+        if eid in self.revealed_cards:
+            self.revealed_cards.remove(eid)
         else:
-            self.revealed.add(entry["id"])
+            self.revealed_cards.add(eid)
         self.render_grid()
 
-    def entry_menu(self, entry: dict):
-        win = ctk.CTkToplevel(self)
-        win.title(entry.get("service", "Item"))
-        win.geometry("320x180")
-        win.resizable(False, False)
-        win.grab_set()
+    # ---------- Context Menu & Modals ----------
+
+    def open_entry_menu(self, entry: dict, anchor_widget):
+        """Displays action dialog for an individual entry."""
+        menu_win = ctk.CTkToplevel(self)
+        menu_win.title("Item Actions")
+        menu_win.geometry("260x220")
+        menu_win.resizable(False, False)
+        menu_win.configure(fg_color=BG_COLOR)
+        menu_win.transient(self)
+        menu_win.grab_set()
+
+        # Center on screen / near anchor
+        x = anchor_widget.winfo_rootx() - 100
+        y = anchor_widget.winfo_rooty() + 30
+        menu_win.geometry(f"+{max(10, x)}+{max(10, y)}")
+
+        frame = ctk.CTkFrame(menu_win, corner_radius=12, fg_color=CARD_BG, border_width=1, border_color=BORDER_COLOR)
+        frame.pack(fill="both", expand=True, padx=12, pady=12)
 
         ctk.CTkLabel(
-            win,
-            text=entry.get("service", "Options"),
-            font=(FONT_FAMILY, 15, "bold"),
+            frame,
+            text=entry.get("service", "Actions"),
+            font=(FONT_FAMILY, 13, "bold"),
             text_color=TEXT_PRIMARY
-        ).pack(pady=(16, 10))
+        ).pack(pady=(10, 8), padx=12, anchor="w")
+
+        def _act(func):
+            menu_win.destroy()
+            func(entry)
 
         ctk.CTkButton(
-            win,
-            text="✏️ Edit Password",
-            height=32,
-            corner_radius=8,
-            font=(FONT_FAMILY, 12),
-            fg_color=BG_COLOR,
-            border_width=1,
-            border_color=BORDER_COLOR,
+            frame,
+            text="✏️ Edit Credential",
+            font=(FONT_FAMILY, 11),
+            fg_color="transparent",
             text_color=TEXT_PRIMARY,
             hover_color=CARD_HOVER_BG,
-            command=lambda: (win.destroy(), self.edit_entry_dialog(entry))
-        ).pack(fill="x", padx=24, pady=4)
+            anchor="w",
+            height=30,
+            command=lambda: _act(self.open_edit_modal)
+        ).pack(fill="x", padx=8, pady=2)
 
         ctk.CTkButton(
-            win,
-            text="🗑️ Delete Entry",
-            height=32,
-            corner_radius=8,
-            font=(FONT_FAMILY, 12),
-            fg_color=DANGER_COLOR,
-            hover_color=DANGER_HOVER,
-            text_color="#FFFFFF",
-            command=lambda: (win.destroy(), self.delete_entry(entry))
-        ).pack(fill="x", padx=24, pady=4)
+            frame,
+            text="🔍 View Details & Notes",
+            font=(FONT_FAMILY, 11),
+            fg_color="transparent",
+            text_color=TEXT_PRIMARY,
+            hover_color=CARD_HOVER_BG,
+            anchor="w",
+            height=30,
+            command=lambda: _act(self.open_details_modal)
+        ).pack(fill="x", padx=8, pady=2)
 
-    def delete_entry(self, entry: dict):
-        if messagebox.askyesno("Delete Password", f"Are you sure you want to delete '{entry.get('service')}'?"):
-            self.app.data["entries"] = [e for e in self.app.data["entries"] if e["id"] != entry["id"]]
-            self.app.save()
-            ToastNotification(self.app, f"Deleted '{entry.get('service')}'", duration_ms=2000, icon="🗑️")
-            self.render_grid()
+        ctk.CTkButton(
+            frame,
+            text="🗑️ Delete Credential",
+            font=(FONT_FAMILY, 11),
+            fg_color="transparent",
+            text_color=DANGER_COLOR,
+            hover_color=CARD_HOVER_BG,
+            anchor="w",
+            height=30,
+            command=lambda: _act(self.confirm_delete_entry)
+        ).pack(fill="x", padx=8, pady=(2, 8))
 
-    # ---------- Form Dialog (Add / Edit) ----------
+    # ---------- Add / Edit Entry Modal ----------
 
-    def add_entry_dialog(self):
-        self.entry_form_dialog(title="Add New Password")
+    def open_add_modal(self):
+        self._open_entry_editor(entry=None, title="Add New Credential")
 
-    def edit_entry_dialog(self, entry: dict):
-        self.entry_form_dialog(title="Edit Password", entry=entry)
+    def open_edit_modal(self, entry: dict):
+        self._open_entry_editor(entry=entry, title="Edit Credential")
 
-    def entry_form_dialog(self, title: str, entry: Optional[dict] = None):
+    def _open_entry_editor(self, entry: Optional[dict], title: str):
         win = ctk.CTkToplevel(self)
         win.title(title)
-        win.geometry("420x480")
+        win.geometry("440x580")
         win.resizable(False, False)
+        win.configure(fg_color=BG_COLOR)
+        win.transient(self)
         win.grab_set()
 
-        pad = {"padx": 28, "pady": 4}
+        # Center relative to parent
+        x = self.winfo_x() + (self.winfo_width() - 440) // 2
+        y = self.winfo_y() + (self.winfo_height() - 580) // 2
+        win.geometry(f"+{max(10, x)}+{max(10, y)}")
+
+        pad = {"padx": 24, "pady": 4}
 
         ctk.CTkLabel(
             win,
             text=title,
             font=(FONT_FAMILY, 18, "bold"),
             text_color=TEXT_PRIMARY
-        ).pack(pady=(20, 10))
+        ).pack(anchor="w", padx=24, pady=(20, 10))
 
-        # Category
+        # Category Picker
         ctk.CTkLabel(win, text="Category", font=(FONT_FAMILY, 11), text_color=TEXT_SECONDARY).pack(anchor="w", **pad)
-        cat_var = ctk.StringVar(value=(entry["category"] if entry else self.app.data["categories"][0]))
-        cat_menu = ctk.CTkOptionMenu(
+        cats = self.app.data.get("categories", storage.DEFAULT_CATEGORIES)
+        current_cat = entry.get("category", cats[0]) if entry else (
+            self.app.current_category if self.app.current_category != "All" else cats[0]
+        )
+        cat_opt = ctk.CTkOptionMenu(
             win,
-            values=self.app.data["categories"],
-            variable=cat_var,
+            values=cats,
+            height=34,
             corner_radius=8,
-            fg_color=BG_COLOR,
+            fg_color=CARD_BG,
             button_color=BORDER_COLOR,
             button_hover_color=ACCENT_COLOR,
             text_color=TEXT_PRIMARY
         )
-        cat_menu.pack(fill="x", padx=28, pady=(0, 6))
+        cat_opt.set(current_cat)
+        cat_opt.pack(fill="x", **pad)
 
-        # Service
+        # Service / Name
         ctk.CTkLabel(win, text="Service / Website", font=(FONT_FAMILY, 11), text_color=TEXT_SECONDARY).pack(anchor="w", **pad)
-        service_entry = ctk.CTkEntry(win, placeholder_text="e.g. GitHub, Google, Amazon", corner_radius=8, height=36)
-        service_entry.pack(fill="x", padx=28, pady=(0, 6))
+        srv_entry = ctk.CTkEntry(win, placeholder_text="e.g. GitHub, Google, Slack", height=34, corner_radius=8, border_color=BORDER_COLOR, fg_color=CARD_BG)
         if entry:
-            service_entry.insert(0, entry.get("service", ""))
+            srv_entry.insert(0, entry.get("service", ""))
+        srv_entry.pack(fill="x", **pad)
 
         # Email / Username
         ctk.CTkLabel(win, text="Email / Username", font=(FONT_FAMILY, 11), text_color=TEXT_SECONDARY).pack(anchor="w", **pad)
-        email_entry = ctk.CTkEntry(win, placeholder_text="e.g. user@example.com", corner_radius=8, height=36)
-        email_entry.pack(fill="x", padx=28, pady=(0, 6))
+        email_entry = ctk.CTkEntry(win, placeholder_text="name@example.com or username", height=34, corner_radius=8, border_color=BORDER_COLOR, fg_color=CARD_BG)
         if entry:
             email_entry.insert(0, entry.get("email", ""))
+        email_entry.pack(fill="x", **pad)
 
-        # Password + Generate
+        # Password + Generator Button
         ctk.CTkLabel(win, text="Password", font=(FONT_FAMILY, 11), text_color=TEXT_SECONDARY).pack(anchor="w", **pad)
-        pw_row = ctk.CTkFrame(win, fg_color="transparent")
-        pw_row.pack(fill="x", padx=28, pady=(0, 12))
+        pw_frame = ctk.CTkFrame(win, fg_color="transparent")
+        pw_frame.pack(fill="x", **pad)
 
-        pw_entry = ctk.CTkEntry(pw_row, show="•", corner_radius=8, height=36)
-        pw_entry.pack(side="left", fill="x", expand=True)
+        pw_entry = ctk.CTkEntry(pw_frame, placeholder_text="Password", height=34, corner_radius=8, border_color=BORDER_COLOR, fg_color=CARD_BG)
         if entry:
             pw_entry.insert(0, entry.get("password", ""))
+        pw_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
-        def toggle_form_pw():
-            if pw_entry.cget("show") == "":
-                pw_entry.configure(show="•")
-                eye_btn.configure(text="👁")
-            else:
-                pw_entry.configure(show="")
-                eye_btn.configure(text="🙈")
+        def _generate():
+            new_p = gen_password(length=20, use_special=True)
+            pw_entry.delete(0, "end")
+            pw_entry.insert(0, new_p)
+            _check_strength()
 
-        eye_btn = ctk.CTkButton(
-            pw_row,
-            text="👁",
-            width=36,
-            height=36,
+        gen_btn = ctk.CTkButton(
+            pw_frame,
+            text="⚡ Gen",
+            width=65,
+            height=34,
             corner_radius=8,
+            font=(FONT_FAMILY, 11, "bold"),
             fg_color=BG_COLOR,
             border_width=1,
             border_color=BORDER_COLOR,
             text_color=TEXT_PRIMARY,
             hover_color=CARD_HOVER_BG,
-            command=toggle_form_pw
+            command=_generate
         )
-        eye_btn.pack(side="left", padx=(6, 0))
+        gen_btn.pack(side="right")
 
-        def generate():
-            pwd = gen_password(length=20)
-            pw_entry.delete(0, "end")
-            pw_entry.insert(0, pwd)
-            pw_entry.configure(show="")
-            eye_btn.configure(text="🙈")
+        strength_lbl = ctk.CTkLabel(win, text="", font=(FONT_FAMILY, 10), text_color=TEXT_MUTED)
+        strength_lbl.pack(anchor="w", padx=24, pady=(0, 2))
 
-        ctk.CTkButton(
-            pw_row,
-            text="🎲 Generate",
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=(FONT_FAMILY, 11, "bold"),
-            fg_color=ACCENT_COLOR,
-            hover_color=ACCENT_HOVER,
-            text_color=ACCENT_TEXT,
-            command=generate
-        ).pack(side="left", padx=(6, 0))
+        def _check_strength(e=None):
+            p = pw_entry.get()
+            score, label = crypto_utils.check_password_strength(p)
+            colors = [DANGER_COLOR, "#FF9500", "#FFCC00", "#34C759", SUCCESS_COLOR]
+            strength_lbl.configure(text=f"Password Strength: {label}", text_color=colors[min(score, 4)])
 
-        def save():
-            service = service_entry.get().strip()
-            email = email_entry.get().strip()
-            password = pw_entry.get()
-            category = cat_var.get()
+        pw_entry.bind("<KeyRelease>", _check_strength)
+        _check_strength()
 
-            if not service or not password:
-                messagebox.showerror("Missing Information", "Service and Password are required fields.")
+        # Notes
+        ctk.CTkLabel(win, text="Notes (Optional)", font=(FONT_FAMILY, 11), text_color=TEXT_SECONDARY).pack(anchor="w", **pad)
+        notes_box = ctk.CTkTextbox(win, height=65, corner_radius=8, border_width=1, border_color=BORDER_COLOR, fg_color=CARD_BG)
+        if entry:
+            notes_box.insert("1.0", entry.get("notes", ""))
+        notes_box.pack(fill="x", **pad)
+
+        # Save Button
+        def _save():
+            srv = srv_entry.get().strip()
+            em = email_entry.get().strip()
+            pw = pw_entry.get()
+            cat = cat_opt.get()
+            notes = notes_box.get("1.0", "end").strip()
+
+            if not srv:
+                messagebox.showerror("Validation Error", "Please provide a Service name.")
                 return
 
             if entry:
-                entry.update(category=category, service=service, email=email, password=password)
-                ToastNotification(self.app, f"Updated '{service}'", duration_ms=2000, icon="✓")
+                # Update existing
+                entry["service"] = srv
+                entry["email"] = em
+                entry["password"] = pw
+                entry["category"] = cat
+                entry["notes"] = notes
+                entry["updated_at"] = int(time.time())
+                ToastNotification(self.app, f"'{srv}' updated.", icon="✏️")
             else:
-                self.app.data["entries"].append(storage.new_entry(category, service, email, password))
-                ToastNotification(self.app, f"Added '{service}'", duration_ms=2000, icon="✓")
+                # New entry
+                new_item = storage.new_entry(cat, srv, em, pw, notes)
+                self.app.data.setdefault("entries", []).append(new_item)
+                ToastNotification(self.app, f"'{srv}' saved to vault.", icon="✓")
 
             self.app.save()
             win.destroy()
             self.render_grid()
 
-        ctk.CTkButton(
+        save_btn = ctk.CTkButton(
             win,
-            text="Save Password",
-            height=40,
-            corner_radius=10,
+            text="Save Credential",
+            height=38,
+            corner_radius=8,
             font=(FONT_FAMILY, 13, "bold"),
             fg_color=ACCENT_COLOR,
             hover_color=ACCENT_HOVER,
             text_color=ACCENT_TEXT,
-            command=save
-        ).pack(fill="x", padx=28, pady=(10, 20))
+            command=_save
+        )
+        save_btn.pack(fill="x", padx=24, pady=(16, 20))
 
-    # ---------- In-App Passkey & Settings Modal ----------
+    # ---------- Details Modal ----------
 
-    def open_settings_dialog(self):
+    def open_details_modal(self, entry: dict):
         win = ctk.CTkToplevel(self)
-        win.title("DeepStore Settings")
-        win.geometry("540x600")
+        win.title(entry.get("service", "Credential Details"))
+        win.geometry("420x400")
         win.resizable(False, False)
+        win.configure(fg_color=BG_COLOR)
+        win.transient(self)
         win.grab_set()
 
-        pad = {"padx": 24, "pady": 6}
+        pad = {"padx": 24, "pady": 4}
 
-        # Header
+        ctk.CTkLabel(
+            win,
+            text=entry.get("service", "Details"),
+            font=(FONT_FAMILY, 18, "bold"),
+            text_color=TEXT_PRIMARY
+        ).pack(anchor="w", padx=24, pady=(20, 4))
+
+        ctk.CTkLabel(
+            win,
+            text=f"Category: {entry.get('category', 'Uncategorized')}",
+            font=(FONT_FAMILY, 11),
+            text_color=ACCENT_COLOR
+        ).pack(anchor="w", padx=24, pady=(0, 10))
+
+        # Details Card
+        card = ctk.CTkFrame(win, corner_radius=12, fg_color=CARD_BG, border_width=1, border_color=BORDER_COLOR)
+        card.pack(fill="both", expand=True, padx=20, pady=(0, 16))
+
+        c_pad = {"padx": 16, "pady": 4}
+
+        ctk.CTkLabel(card, text="Username / Email:", font=(FONT_FAMILY, 11, "bold"), text_color=TEXT_SECONDARY).pack(anchor="w", **c_pad)
+        ctk.CTkLabel(card, text=entry.get("email", "—") or "—", font=(FONT_FAMILY, 12), text_color=TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(0, 6))
+
+        ctk.CTkLabel(card, text="Password:", font=(FONT_FAMILY, 11, "bold"), text_color=TEXT_SECONDARY).pack(anchor="w", **c_pad)
+        ctk.CTkLabel(card, text=entry.get("password", ""), font=(MONO_FONT, 12), text_color=TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(0, 6))
+
+        ctk.CTkLabel(card, text="Notes:", font=(FONT_FAMILY, 11, "bold"), text_color=TEXT_SECONDARY).pack(anchor="w", **c_pad)
+        notes_txt = entry.get("notes", "") or "No additional notes."
+        ctk.CTkLabel(card, text=notes_txt, font=(FONT_FAMILY, 11), text_color=TEXT_MUTED, wraplength=340, justify="left").pack(anchor="w", padx=16, pady=(0, 10))
+
+    # ---------- Delete Entry ----------
+
+    def confirm_delete_entry(self, entry: dict):
+        srv = entry.get("service", "this item")
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to permanently delete credentials for '{srv}'?"):
+            self.app.data["entries"] = [e for e in self.app.data.get("entries", []) if e.get("id") != entry.get("id")]
+            self.app.save()
+            self.render_grid()
+            ToastNotification(self.app, f"'{srv}' deleted.", icon="🗑️")
+
+    # ---------- Settings Modal ----------
+
+    def open_settings_modal(self):
+        win = ctk.CTkToplevel(self)
+        win.title("DeepStore Preferences & Security")
+        win.geometry("540x600")
+        win.resizable(False, False)
+        win.configure(fg_color=BG_COLOR)
+        win.transient(self)
+        win.grab_set()
+
         header = ctk.CTkFrame(win, fg_color="transparent")
         header.pack(fill="x", padx=24, pady=(20, 10))
         ctk.CTkLabel(
@@ -1170,21 +1383,23 @@ class VaultFrame(ctk.CTkFrame):
         scroll = ctk.CTkScrollableFrame(win, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=12, pady=(0, 16))
 
-        # --- SECTION 1: Passkey & Touch ID Management ---
+        # --- SECTION 1: Windows Authentication & Quick Unlock ---
         sec1 = ctk.CTkFrame(scroll, corner_radius=14, fg_color=CARD_BG, border_width=1, border_color=BORDER_COLOR)
         sec1.pack(fill="x", pady=8, padx=12)
 
         ctk.CTkLabel(
             sec1,
-            text="Touch ID & Passkey Cache",
+            text="Windows Authentication & Quick Unlock",
             font=(FONT_FAMILY, 14, "bold"),
             text_color=TEXT_PRIMARY
         ).pack(anchor="w", padx=16, pady=(14, 4))
 
-        has_touch_id = biometrics.touch_id_available()
-        is_cached = biometrics.is_key_stored()
-        status_text = "✓ Touch ID hardware supported" if has_touch_id else "⚠️ Touch ID not available on this device"
-        status_color = SUCCESS_COLOR if has_touch_id else TEXT_MUTED
+        username = win_auth.get_current_username()
+        has_win_auth = win_auth.windows_auth_available()
+        is_cached = win_auth.is_key_stored()
+
+        status_text = f"👤 Windows User: {username}  •  ✓ Active" if has_win_auth else f"👤 Windows User: {username}"
+        status_color = SUCCESS_COLOR if has_win_auth else TEXT_MUTED
 
         ctk.CTkLabel(
             sec1,
@@ -1194,33 +1409,33 @@ class VaultFrame(ctk.CTkFrame):
         ).pack(anchor="w", padx=16, pady=(0, 8))
 
         # Toggle Switch
-        touch_var = ctk.BooleanVar(value=self.app.meta.get("touch_id_enabled", False) and is_cached)
+        win_var = ctk.BooleanVar(value=self.app.meta.get("windows_auth_enabled", False) and is_cached)
 
-        def on_touch_toggle():
-            val = touch_var.get()
+        def on_win_toggle():
+            val = win_var.get()
             if val:
-                if not has_touch_id:
-                    messagebox.showwarning("Unavailable", "Touch ID hardware is not active on this Mac.")
-                    touch_var.set(False)
+                if not self.app.key:
+                    messagebox.showwarning("Not Unlocked", "Please unlock the vault first before enrolling Windows Quick Unlock.")
+                    win_var.set(False)
                     return
-                # Enroll / store current key
-                biometrics.store_key(self.app.key)
-                self.app.meta["touch_id_enabled"] = True
+                # Enroll / store current key in Windows Credential Manager
+                win_auth.store_key(self.app.key)
+                self.app.meta["windows_auth_enabled"] = True
                 storage.save_meta(self.app.meta)
-                ToastNotification(self.app, "Passkey enrolled in Keychain.", icon="🔑")
+                ToastNotification(self.app, "Passkey enrolled in Windows Credential Manager.", icon="🔑")
             else:
-                biometrics.clear_key()
-                self.app.meta["touch_id_enabled"] = False
+                win_auth.clear_key()
+                self.app.meta["windows_auth_enabled"] = False
                 storage.save_meta(self.app.meta)
-                ToastNotification(self.app, "Passkey cleared from Keychain.", icon="🛡️")
+                ToastNotification(self.app, "Passkey removed from Windows Credential Manager.", icon="🛡️")
 
         switch = ctk.CTkSwitch(
             sec1,
-            text="Enable Touch ID / Biometric Passkey Unlock",
+            text="Enable Windows Password Quick Unlock",
             font=(FONT_FAMILY, 12),
-            variable=touch_var,
+            variable=win_var,
             progress_color=ACCENT_COLOR,
-            command=on_touch_toggle
+            command=on_win_toggle
         )
         switch.pack(anchor="w", padx=16, pady=(0, 10))
 
@@ -1230,22 +1445,22 @@ class VaultFrame(ctk.CTkFrame):
 
         def resync_passkey():
             if self.app.key:
-                biometrics.store_key(self.app.key)
-                self.app.meta["touch_id_enabled"] = True
+                win_auth.store_key(self.app.key)
+                self.app.meta["windows_auth_enabled"] = True
                 storage.save_meta(self.app.meta)
-                touch_var.set(True)
-                ToastNotification(self.app, "Passkey synced to Keychain!", icon="✓")
+                win_var.set(True)
+                ToastNotification(self.app, "Passkey synced to Windows Credential Manager!", icon="✓")
 
         def clear_passkey():
-            biometrics.clear_key()
-            self.app.meta["touch_id_enabled"] = False
+            win_auth.clear_key()
+            self.app.meta["windows_auth_enabled"] = False
             storage.save_meta(self.app.meta)
-            touch_var.set(False)
-            ToastNotification(self.app, "Keychain passkey cache cleared.", icon="🗑️")
+            win_var.set(False)
+            ToastNotification(self.app, "Windows Credential Manager cache cleared.", icon="🗑️")
 
         ctk.CTkButton(
             passkey_btns,
-            text="🔄 Re-sync Passkey",
+            text="🔄 Re-sync to Credential Manager",
             height=28,
             corner_radius=6,
             font=(FONT_FAMILY, 11),
@@ -1259,7 +1474,7 @@ class VaultFrame(ctk.CTkFrame):
 
         ctk.CTkButton(
             passkey_btns,
-            text="🗑️ Clear Passkey Cache",
+            text="🗑️ Clear Credential Cache",
             height=28,
             corner_radius=6,
             font=(FONT_FAMILY, 11),
@@ -1320,9 +1535,9 @@ class VaultFrame(ctk.CTkFrame):
                 new_derived_key = storage.change_master_password(self.app.key, np)
                 self.app.key = new_derived_key
 
-                # Update Keychain if Touch ID is active
-                if self.app.meta.get("touch_id_enabled"):
-                    biometrics.store_key(new_derived_key)
+                # Update Windows Credential Manager if active
+                if self.app.meta.get("windows_auth_enabled"):
+                    win_auth.store_key(new_derived_key)
 
                 curr_pw.delete(0, "end")
                 new_pw.delete(0, "end")
@@ -1370,7 +1585,7 @@ class VaultFrame(ctk.CTkFrame):
             self.app.meta["auto_lock_minutes"] = lock_opts[val]
             storage.save_meta(self.app.meta)
 
-        ctk.CTkOptionMenu(
+        lock_menu = ctk.CTkOptionMenu(
             lock_row,
             values=list(lock_opts.keys()),
             width=110,
@@ -1381,8 +1596,9 @@ class VaultFrame(ctk.CTkFrame):
             button_hover_color=ACCENT_COLOR,
             text_color=TEXT_PRIMARY,
             command=on_lock_change
-        ).set(curr_lock_str)
-        lock_row.winfo_children()[-1].pack(side="right")
+        )
+        lock_menu.set(curr_lock_str)
+        lock_menu.pack(side="right")
 
         # Clipboard auto clear
         clip_row = ctk.CTkFrame(sec3, fg_color="transparent")
@@ -1397,7 +1613,7 @@ class VaultFrame(ctk.CTkFrame):
             self.app.meta["clipboard_clear_seconds"] = clip_opts[val]
             storage.save_meta(self.app.meta)
 
-        ctk.CTkOptionMenu(
+        clip_menu = ctk.CTkOptionMenu(
             clip_row,
             values=list(clip_opts.keys()),
             width=110,
@@ -1408,8 +1624,9 @@ class VaultFrame(ctk.CTkFrame):
             button_hover_color=ACCENT_COLOR,
             text_color=TEXT_PRIMARY,
             command=on_clip_change
-        ).set(curr_clip_str)
-        clip_row.winfo_children()[-1].pack(side="right")
+        )
+        clip_menu.set(curr_clip_str)
+        clip_menu.pack(side="right")
 
         # Theme Appearance
         theme_row = ctk.CTkFrame(sec3, fg_color="transparent")
